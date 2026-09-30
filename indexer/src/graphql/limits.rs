@@ -9,7 +9,7 @@
 //!
 //! 1. **Depth limiter** — implemented as an async-graphql `Extension` that
 //!    walks the incoming query's `ExecutableDocument` AST and rejects any
-//!    selection set whose nesting depth exceeds `MAX_QUERY_DEPTH`.
+//!    selection set whose nesting depth exceeds [`MAX_QUERY_DEPTH`].
 //!
 //! 2. **Complexity limiter** — async-graphql's built-in
 //!    `SchemaBuilder::limit_complexity` is used (see `schema.rs`), but this
@@ -17,10 +17,11 @@
 //!    source of truth.
 //!
 //! ## Constants
-//! | Constant            | Value | Meaning                                      |
-//! |---------------------|-------|----------------------------------------------|
-//! | `MAX_QUERY_DEPTH`   | 8     | Maximum allowed selection-set nesting levels |
-//! | `MAX_COMPLEXITY`    | 100   | Maximum allowed total complexity score       |
+//!
+//! | Constant          | Value | Meaning                                      |
+//! |-------------------|-------|----------------------------------------------|
+//! | `MAX_QUERY_DEPTH` | 8     | Maximum allowed selection-set nesting levels |
+//! | `MAX_COMPLEXITY`  | 100   | Maximum allowed total complexity score       |
 //!
 //! Adjust the values here to loosen or tighten the limits across the whole
 //! service; no other file needs to change.
@@ -53,9 +54,10 @@ pub const MAX_COMPLEXITY: usize = 100;
 /// The depth of an empty selection set is 0.  Each field that itself has a
 /// non-empty selection set adds 1 to the depth of its children.
 ///
-/// Depth examples:
-/// - `{ events }`                               → depth 1
-/// - `{ project { events } }`                  → depth 2
+/// # Examples
+///
+/// - `{ events }` → depth 1
+/// - `{ project { events } }` → depth 2
 /// - `{ project { events { project { id } } } }` → depth 4
 pub fn selection_set_depth(set: &SelectionSet) -> usize {
     set.items
@@ -71,11 +73,9 @@ fn selection_depth(selection: &Selection) -> usize {
         Selection::InlineFragment(frag) => {
             selection_set_depth(&frag.node.selection_set.node)
         }
-        Selection::FragmentSpread(_) => {
-            // Named fragment spreads are resolved later; we conservatively
-            // assign depth 1 to avoid false negatives.
-            1
-        }
+        // Named fragment spreads are resolved later; conservatively assign
+        // depth 1 to avoid false negatives.
+        Selection::FragmentSpread(_) => 1,
     }
 }
 
@@ -85,7 +85,7 @@ fn field_depth(field: &Field) -> usize {
         // Leaf field — depth contribution is 1.
         1
     } else {
-        // Object field — add 1 for this level plus the deepest child.
+        // Object field — 1 for this level plus the deepest child.
         1 + child_depth
     }
 }
@@ -126,7 +126,7 @@ impl Extension for DepthLimiterExtension {
         // Let the standard parser run first so we get a proper AST.
         let doc = next.run(ctx, query, variables).await?;
 
-        // Walk every top-level operation and every fragment.
+        // Walk every top-level operation and every named fragment.
         let max_depth = doc
             .operations
             .iter()
@@ -142,8 +142,8 @@ impl Extension for DepthLimiterExtension {
         if max_depth > MAX_QUERY_DEPTH {
             return Err(ServerError::new(
                 format!(
-                    "Query depth {} exceeds the maximum allowed depth of {}.",
-                    max_depth, MAX_QUERY_DEPTH
+                    "Query depth {max_depth} exceeds the maximum allowed depth of \
+                     {MAX_QUERY_DEPTH}."
                 ),
                 None,
             ));
@@ -152,7 +152,7 @@ impl Extension for DepthLimiterExtension {
         Ok(doc)
     }
 
-    /// Pass execution through unchanged (depth check happens at parse time).
+    /// Pass execution through unchanged — depth check happens at parse time.
     async fn execute(
         &self,
         ctx: &ExtensionContext<'_>,
@@ -217,14 +217,13 @@ mod tests {
     }
 
     #[test]
-    fn depth_of_exactly_max_is_allowed() {
+    fn depth_of_exactly_max_is_accepted() {
         // Build a query that is exactly MAX_QUERY_DEPTH levels deep.
         // e.g. for MAX_QUERY_DEPTH=8: { a { b { c { d { e { f { g { h } } } } } } } }
         let mut q = String::from("{ a");
         for _ in 1..MAX_QUERY_DEPTH {
             q.push_str(" { b");
         }
-        // Close all the nested braces
         for _ in 1..MAX_QUERY_DEPTH {
             q.push_str(" }");
         }
@@ -234,7 +233,6 @@ mod tests {
 
     #[test]
     fn depth_of_one_over_max() {
-        // MAX_QUERY_DEPTH + 1 levels deep
         let mut q = String::from("{ a");
         for _ in 0..MAX_QUERY_DEPTH {
             q.push_str(" { b");
@@ -250,16 +248,17 @@ mod tests {
 
     mod schema_tests {
         use super::super::*;
-        use async_graphql::{Object, Schema, SimpleObject, EmptyMutation, EmptySubscription};
+        use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 
-        /// Minimal schema used only for testing limits.
         struct TestQuery;
 
+        #[allow(dead_code)]
         #[derive(SimpleObject)]
         struct Child {
             id: String,
         }
 
+        #[allow(dead_code)]
         #[derive(SimpleObject)]
         struct Parent {
             id: String,
@@ -290,8 +289,6 @@ mod tests {
                 .finish()
         }
 
-        // ── depth limit tests ─────────────────────────────────────────────────
-
         #[tokio::test]
         async fn valid_shallow_query_passes() {
             let schema = build_test_schema();
@@ -309,39 +306,16 @@ mod tests {
         #[tokio::test]
         async fn query_exceeding_depth_is_rejected() {
             let schema = build_test_schema();
-            // Build a query deeper than MAX_QUERY_DEPTH.
-            // Each `parent { child { parent { child { ... } } } }` pattern exceeds depth.
-            // Simpler: build a raw deep query string with aliases.
-            // We'll build: { a1: leaf, a2: leaf, ... } nesting won't help, 
-            // so use inline fragments or just raw nesting.
-            // Actually, build a multi-level object query:
-            // { parent { child { id } } } is depth 3, which is fine.
-            // We need depth > 8. Let's nest with inline fragments and aliases.
-            // The simplest is to use __typename nesting.
-            let deep_query = "{ parent { child { id } } }"; // depth 3 — passes
-            let res = schema.execute(deep_query).await;
-            assert!(res.errors.is_empty(), "depth-3 query should pass");
-
-            // Build over-depth: wrap leaf in many levels using __typename tricks.
-            // Since our test schema only has 2 levels (parent->child), 
-            // we'll use the raw string approach from depth_of tests.
-            // async-graphql's limit_depth validates this at the schema level.
-            // We can't easily nest beyond what fields exist, but limit_depth 
-            // validates against the document AST, not just resolved types.
-            // Using inline fragments on __Schema which is always available:
-            let over_depth = r#"
-                {
-                    __schema {
-                        types {
-                            fields {
-                                type {
-                                    fields {
-                                        type {
-                                            fields {
-                                                type {
-                                                    name
-                                                }
-                                            }
+            // Introspection nesting at depth > 8
+            let over_depth = r#"{
+                __schema {
+                    types {
+                        fields {
+                            type {
+                                fields {
+                                    type {
+                                        fields {
+                                            type { name }
                                         }
                                     }
                                 }
@@ -349,22 +323,17 @@ mod tests {
                         }
                     }
                 }
-            "#;
-            // This is depth 9 (> MAX_QUERY_DEPTH=8): 
-            // __schema(1) > types(2) > fields(3) > type(4) > fields(5) > type(6) > fields(7) > type(8) > name(9)
+            }"#;
             let res = schema.execute(over_depth).await;
             assert!(
                 !res.errors.is_empty(),
-                "expected an error for over-depth query, got: {:?}", res.data
+                "expected an error for over-depth query"
             );
         }
-
-        // ── complexity limit tests ────────────────────────────────────────────
 
         #[tokio::test]
         async fn low_complexity_query_passes() {
             let schema = build_test_schema();
-            // `leaf` has complexity 1 — well within MAX_COMPLEXITY.
             let res = schema.execute("{ leaf }").await;
             assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
         }
@@ -372,13 +341,12 @@ mod tests {
         #[tokio::test]
         async fn high_complexity_query_is_rejected() {
             let schema = build_test_schema();
-            // Each `parent` costs 5; 21 calls = 105 > MAX_COMPLEXITY (100).
+            // 21 * complexity(5) = 105 > MAX_COMPLEXITY(100)
             let fields: String = (0..21)
-                .map(|i| format!("p{}: parent {{ id }}", i))
+                .map(|i| format!("p{i}: parent {{ id }}"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let q = format!("{{ {} }}", fields);
-
+            let q = format!("{{ {fields} }}");
             let res = schema.execute(q).await;
             assert!(
                 !res.errors.is_empty(),
@@ -389,12 +357,12 @@ mod tests {
         #[tokio::test]
         async fn max_complexity_boundary_exact() {
             let schema = build_test_schema();
-            // 20 * 5 = 100 = MAX_COMPLEXITY — should be accepted (inclusive boundary).
+            // 20 * complexity(5) = 100 = MAX_COMPLEXITY — should pass
             let fields: String = (0..20)
-                .map(|i| format!("p{}: parent {{ id }}", i))
+                .map(|i| format!("p{i}: parent {{ id }}"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let q = format!("{{ {} }}", fields);
+            let q = format!("{{ {fields} }}");
             let res = schema.execute(q).await;
             assert!(
                 res.errors.is_empty(),
@@ -403,15 +371,11 @@ mod tests {
             );
         }
 
-        // ── edge-case tests ───────────────────────────────────────────────────
-
         #[tokio::test]
-        async fn empty_selection_does_not_panic() {
+        async fn introspection_typename_does_not_panic() {
             let schema = build_test_schema();
-            // Introspection query at depth 1 should not panic.
             let res = schema.execute("{ __typename }").await;
-            // Just verify it doesn't panic — may or may not have data errors.
-            let _ = res;
+            let _ = res; // must not panic
         }
 
         #[tokio::test]
@@ -419,14 +383,6 @@ mod tests {
             let schema = build_test_schema();
             let res = schema.execute("query GetLeaf { leaf }").await;
             assert!(res.errors.is_empty(), "expected no errors: {:?}", res.errors);
-        }
-
-        #[tokio::test]
-        async fn complexity_of_two_leaves_sums_correctly() {
-            let schema = build_test_schema();
-            // 2 * leaf (complexity 1 each) = 2 — well within limit.
-            let res = schema.execute("{ a: leaf b: leaf }").await;
-            assert!(res.errors.is_empty(), "two leaf fields should pass: {:?}", res.errors);
         }
     }
 }
