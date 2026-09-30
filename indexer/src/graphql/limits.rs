@@ -1,4 +1,4 @@
-//! Query Complexity & Depth Limiting for the Soroban Indexer GraphQL API
+﻿//! Query Complexity & Depth Limiting for the Soroban Indexer GraphQL API
 //!
 //! # Problem
 //! Unbounded nested GraphQL queries can produce exponential resolver fan-out,
@@ -7,11 +7,11 @@
 //! # Solution
 //! Two independent guards run before any resolver is invoked:
 //!
-//! 1. **Depth limiter** — implemented as an async-graphql `Extension` that
+//! 1. **Depth limiter** ΓÇö implemented as an async-graphql `Extension` that
 //!    walks the incoming query's `ExecutableDocument` AST and rejects any
 //!    selection set whose nesting depth exceeds [`MAX_QUERY_DEPTH`].
 //!
-//! 2. **Complexity limiter** — async-graphql's built-in
+//! 2. **Complexity limiter** ΓÇö async-graphql's built-in
 //!    `SchemaBuilder::limit_complexity` is used (see `schema.rs`), but this
 //!    module exposes the canonical constants so both guards share a single
 //!    source of truth.
@@ -33,7 +33,7 @@ use async_graphql::{
 };
 use std::sync::Arc;
 
-// ── Public constants ──────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Public constants ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 /// Maximum allowed query nesting depth.
 ///
@@ -47,7 +47,7 @@ pub const MAX_QUERY_DEPTH: usize = 8;
 /// `.limit_complexity(MAX_COMPLEXITY)` with this constant.
 pub const MAX_COMPLEXITY: usize = 100;
 
-// ── Depth calculation ─────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Depth calculation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 /// Recursively compute the maximum nesting depth of a [`SelectionSet`].
 ///
@@ -56,9 +56,9 @@ pub const MAX_COMPLEXITY: usize = 100;
 ///
 /// # Examples
 ///
-/// - `{ events }` → depth 1
-/// - `{ project { events } }` → depth 2
-/// - `{ project { events { project { id } } } }` → depth 4
+/// - `{ events }` ΓåÆ depth 1
+/// - `{ project { events } }` ΓåÆ depth 2
+/// - `{ project { events { project { id } } } }` ΓåÆ depth 4
 pub fn selection_set_depth(set: &SelectionSet) -> usize {
     set.items
         .iter()
@@ -82,15 +82,15 @@ fn selection_depth(selection: &Selection) -> usize {
 fn field_depth(field: &Field) -> usize {
     let child_depth = selection_set_depth(&field.selection_set.node);
     if child_depth == 0 {
-        // Leaf field — depth contribution is 1.
+        // Leaf field ΓÇö depth contribution is 1.
         1
     } else {
-        // Object field — 1 for this level plus the deepest child.
+        // Object field ΓÇö 1 for this level plus the deepest child.
         1 + child_depth
     }
 }
 
-// ── DepthLimiter extension factory ────────────────────────────────────────────
+// ΓöÇΓöÇ DepthLimiter extension factory ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 /// An [`ExtensionFactory`] that produces [`DepthLimiterExtension`] instances.
 ///
@@ -99,7 +99,7 @@ fn field_depth(field: &Field) -> usize {
 /// ```ignore
 /// Schema::build(query, mutation, subscription)
 ///     .extension(DepthLimiter)
-///     // …
+///     // ΓÇª
 /// ```
 pub struct DepthLimiter;
 
@@ -109,7 +109,7 @@ impl ExtensionFactory for DepthLimiter {
     }
 }
 
-// ── DepthLimiter extension ────────────────────────────────────────────────────
+// ΓöÇΓöÇ DepthLimiter extension ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 struct DepthLimiterExtension;
 
@@ -152,7 +152,7 @@ impl Extension for DepthLimiterExtension {
         Ok(doc)
     }
 
-    /// Pass execution through unchanged — depth check happens at parse time.
+    /// Pass execution through unchanged ΓÇö depth check happens at parse time.
     async fn execute(
         &self,
         ctx: &ExtensionContext<'_>,
@@ -163,14 +163,14 @@ impl Extension for DepthLimiterExtension {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇ Tests ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_graphql::parser::parse_query;
 
-    // ── helpers ───────────────────────────────────────────────────────────────
+    // ΓöÇΓöÇ helpers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     fn depth_of(query: &str) -> usize {
         let doc = parse_query(query).expect("invalid GraphQL");
@@ -181,7 +181,7 @@ mod tests {
             .unwrap_or(0)
     }
 
-    // ── depth calculation unit tests ──────────────────────────────────────────
+    // ΓöÇΓöÇ depth calculation unit tests ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     #[test]
     fn depth_of_single_scalar_field_is_1() {
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(depth_of(&q), MAX_QUERY_DEPTH + 1);
     }
 
-    // ── integration-style tests using the full schema ─────────────────────────
+    // ΓöÇΓöÇ integration-style tests using the full schema ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
     mod schema_tests {
         use super::super::*;
@@ -357,7 +357,7 @@ mod tests {
         #[tokio::test]
         async fn max_complexity_boundary_exact() {
             let schema = build_test_schema();
-            // 20 * complexity(5) = 100 = MAX_COMPLEXITY — should pass
+            // 20 * complexity(5) = 100 = MAX_COMPLEXITY ΓÇö should pass
             let fields: String = (0..20)
                 .map(|i| format!("p{i}: parent {{ id }}"))
                 .collect::<Vec<_>>()
